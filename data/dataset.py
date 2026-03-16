@@ -19,7 +19,7 @@ class NewsBiasDataset(Dataset):
         self.presence_cols = [
             "V1_Salience.present", "V2_Perspective.present", "V3_Color_Lighting.present",
             "V4_Symbolism.present", "T1_Loaded_Language.present", "T2_Moral_Judgment.present",
-            "J1_Role_Framing.present", "J2_Selective_Imbalance.present", "J3_Stereotyping.present"
+            "J1_Role_Framing.present", "J2_Selective_Imbalance.present"#, "J3_Stereotyping.present"
         ]
 
     def __len__(self):

@@ -4,53 +4,20 @@ import torch.nn as nn
 import pandas as pd
 import gradio as gr
 from PIL import Image
-from transformers import CLIPProcessor, CLIPModel, RobertaTokenizer, RobertaModel
+from transformers import AutoModel, AutoTokenizerfrom, CLIPModel
+from models.multimodal_model import MultimodalBiasModel
 import torch.nn.functional as F
 
 # -----------------------------------------------------------------------------
 # 1. 模型定义 (必须与训练时完全一致)
 # -----------------------------------------------------------------------------
-class MultimodalBiasModel(nn.Module):
-    def __init__(self, clip_name, text_model_name, num_presence_labels, num_relation_classes, finetune_text=True):
-        super().__init__()
-        self.clip = CLIPModel.from_pretrained(clip_name)
-        self.text_encoder = RobertaModel.from_pretrained(text_model_name)
-
-        # 这里的参数需要与加载的权重匹配，但推理时不需要调整requires_grad
-        img_dim = self.clip.config.projection_dim  # 512
-        txt_dim = self.text_encoder.config.hidden_size  # 1024
-        joint_dim = img_dim + txt_dim
-
-        self.presence_head = nn.Sequential(
-            nn.Linear(joint_dim, 512),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, num_presence_labels)
-        )
-
-        self.relation_head = nn.Sequential(
-            nn.Linear(joint_dim, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, num_relation_classes)
-        )
-
-    def forward(self, pixel_values, input_ids, attention_mask):
-        img_feat = self.clip.get_image_features(pixel_values=pixel_values)
-        img_feat = img_feat / img_feat.norm(dim=-1, keepdim=True)  # L2 Norm
-
-        txt_outputs = self.text_encoder(input_ids=input_ids, attention_mask=attention_mask)
-        txt_feat = txt_outputs.last_hidden_state[:, 0, :]  # [CLS] token
-
-        joint = torch.cat([img_feat, txt_feat], dim=1)
-        return self.presence_head(joint), self.relation_head(joint)
 
 # -----------------------------------------------------------------------------
 # 2. 全局配置与初始化
 # -----------------------------------------------------------------------------
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MODEL_PATH = "multimodal_bias_model.pt"
-CSV_PATH = "label-gemini-flash-lite-2.5.csv"
+MODEL_PATH = "checkpoints/multimodal_bias_model.pt"
+CSV_PATH = "data/processed/labels/label-gemini-flash-lite-2.5.csv"
 
 # 环境变量 (如果你的环境需要)
 os.environ["HF_HOME"] = "D:/hf_cache"
@@ -85,11 +52,15 @@ presence_labels_names = [
 print("正在加载模型权重...")
 # 初始化模型结构
 model = MultimodalBiasModel(
-    clip_name="openai/clip-vit-base-patch32",
-    text_model_name="roberta-large",
-    num_presence_labels=9,
-    num_relation_classes=len(unique_relations)
+    clip_name="openai/clip-vit-large-patch14",
+    text_model_name="FacebookAI/xlm-roberta-large",
+    num_presence_labels=8,
+    num_relation_classes=len(unique_relations),
+    use_lora=True,
+    lora_r=8,
+    lora_alpha=16
 ).to(DEVICE)
+
 
 # 加载训练好的权重
 try:
@@ -169,7 +140,7 @@ with gr.Blocks(css=custom_css, title="News Bias Detector") as demo:
     gr.Markdown(
         """
         # 📰 Multimodal News Bias Detection System
-        上传新闻图片并输入相关文本，模型将分析其中潜在的视觉与文本偏见，并推断人物/实体间的关系。
+        上传新闻图片并输入相关文本，模型将分析其中潜在的视觉与文本偏见，并推断图片/文字之间的偏见关系。
         """
     )
     
@@ -191,7 +162,7 @@ with gr.Blocks(css=custom_css, title="News Bias Detector") as demo:
             # 输出区
             gr.Markdown("### 🔍 Analysis Results")
             
-            gr.Markdown("#### 1. Social Relationship (人物/实体关系)")
+            gr.Markdown("#### 1. IMG/TXT Relationship (图片/文本关系)")
             label_output_relation = gr.Label(num_top_classes=3, label="Predicted Relationship")
             
             gr.Markdown("#### 2. Bias Indicators (偏见指标存在概率)")

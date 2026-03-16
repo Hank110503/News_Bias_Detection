@@ -11,14 +11,15 @@ from training.trainer import Trainer
 from training.loss import build_loss
 from utils.class_weight import compute_pos_weight
 
-from transformers import CLIPProcessor, RobertaTokenizer
+from transformers import CLIPProcessor, AutoTokenizer, AutoModel
 from utils.logger import ExperimentLogger
+from training.optimizer import create_optimizer
 
 def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
-    exp_logger = ExperimentLogger(exp_name="multimodal_bias_v1")
+    exp_logger = ExperimentLogger(exp_name="multimodal_bias_detection_lora&crossattension")
     exp_logger.info(f"Using device: {device}")
 
     # ------------------------
@@ -48,7 +49,7 @@ def main():
         "T2_Moral_Judgment.present",
         "J1_Role_Framing.present",
         "J2_Selective_Imbalance.present",
-        "J3_Stereotyping.present",
+        # "J3_Stereotyping.present",
     ]
 
     pos_weight = compute_pos_weight(train_df, presence_cols).to(device)
@@ -56,10 +57,16 @@ def main():
     # ------------------------
     # 2. Processor / Tokenizer
     # ------------------------
-    clip_processor = CLIPProcessor.from_pretrained(
-        "openai/clip-vit-base-patch32"
-    )
-    tokenizer = RobertaTokenizer.from_pretrained("roberta-large")
+    # clip_processor = CLIPProcessor.from_pretrained(
+    #     "openai/clip-vit-base-patch32"
+    # )
+    # tokenizer = RobertaTokenizer.from_pretrained("roberta-large")
+
+    clip_model_name = "openai/clip-vit-large-patch14"
+    clip_processor = CLIPProcessor.from_pretrained(clip_model_name)
+
+    text_model_name = "FacebookAI/xlm-roberta-large" 
+    tokenizer = AutoTokenizer.from_pretrained(text_model_name)
 
     train_set = NewsBiasDataset(
         train_df,
@@ -77,14 +84,14 @@ def main():
 
     train_loader = DataLoader(
         train_set,
-        batch_size=32,
+        batch_size=16,
         shuffle=True,
         num_workers=12
     )
 
     val_loader = DataLoader(
         val_set,
-        batch_size=32,
+        batch_size=16,
         shuffle=False,
         num_workers=12
     )
@@ -93,18 +100,27 @@ def main():
     # 3. Model
     # ------------------------
     model = MultimodalBiasModel(
-        clip_name="openai/clip-vit-base-patch32",
-        text_model_name="roberta-large",
-        num_presence_labels=9,
-        num_relation_classes=len(unique_relations)
+        clip_name="openai/clip-vit-large-patch14",
+        text_model_name="FacebookAI/xlm-roberta-large",
+        num_presence_labels=8,
+        num_relation_classes=len(unique_relations),
+        use_lora=True,
+        lora_r=8,
+        lora_alpha=16
     ).to(device)
 
     # 初始冻结 text encoder（和你原代码等价）
-    model.text_encoder.freeze()
+    # optimizer = torch.optim.AdamW(
+    #     filter(lambda p: p.requires_grad, model.parameters()),
+    #     lr=1e-5
+    # )
+
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
 
     optimizer = torch.optim.AdamW(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=1e-5
+        trainable_params, 
+        lr=5e-5,
+        weight_decay=0.01
     )
 
     criterion_p, criterion_r = build_loss(pos_weight)
@@ -117,30 +133,33 @@ def main():
         device=device,
         save_path=os.path.join(exp_logger.exp_dir, "best_model.pt"),
         early_stop_patience=5,
+        presence_weight=1.0, 
+        relation_weight=0.3 # 如果两个任务难度差异大，可以调整这个权重
     )
 
     # ------------------------
     # 4. Training Loop
     # ------------------------
-    num_epochs = 20
-    unfreeze_epoch = 3
+    num_epochs = 15
+    unfreeze_epoch = 10000 # 设置一个很大的值，表示不解冻 text encoder
 
     for epoch in range(num_epochs):
         exp_logger.info(f"--- Epoch {epoch+1}/{num_epochs} ---")
         print(f"\n===== Epoch {epoch+1}/{num_epochs} =====")
 
-        # 解冻 text encoder
-        if epoch == unfreeze_epoch:
-            exp_logger.info("Unfreezing text encoder...")
-            print("Unfreezing text encoder")
-            model.text_encoder.unfreeze()
+        # # 解冻 text encoder
+        # if epoch == unfreeze_epoch:
+        #     exp_logger.info("Unfreezing text encoder...")
+        #     print("Unfreezing text encoder")
+        #     model.text_encoder.unfreeze()
 
-            # 重新定义 optimizer（关键！！）
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=1e-5
-            )
-            trainer.optimizer = optimizer
+        #     # 重新定义 optimizer（关键！！）
+        #     optimizer = torch.optim.AdamW(
+        #         model.parameters(),
+        #         lr=1e-5
+        #     )
+        #     trainer.optimizer = optimizer
+
 
         train_loss, train_lp, train_lr = trainer.train_one_epoch(train_loader)
 
@@ -171,7 +190,7 @@ def main():
         }, step_type="Val")
 
         exp_logger.info(f"Train Loss: {train_loss:.4f} | Val F1 (Pres): {presence_f1:.4f} | Val F1 (Rel): {relation_f1:.4f}")
-
+        # exp_logger.info(f"Fusion weights: {torch.softmax(model.presence_fusion_weights, dim=0).detach().cpu()}")
         # 保存最优模型
 
         # Save best
