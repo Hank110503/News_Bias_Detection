@@ -2,11 +2,12 @@ from transformers import CLIPProcessor, RobertaTokenizer
 from torch.utils.data import Dataset
 from PIL import Image, ImageFile
 import torch
+import json
 
 # 允许加载被截断的图片
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 class NewsBiasDataset(Dataset):
-    def __init__(self, df, relation_to_id, 
+    def __init__(self, df, relation_to_id, presence_cols,
                  clip_processor,
                  tokenizer,
                  max_text_len=512):
@@ -16,11 +17,8 @@ class NewsBiasDataset(Dataset):
         self.clip_processor = clip_processor
         self.text_tokenizer = tokenizer
 
-        self.presence_cols = [
-            "V1_Salience.present", "V2_Perspective.present", "V3_Color_Lighting.present",
-            "V4_Symbolism.present", "T1_Loaded_Language.present", "T2_Moral_Judgment.present",
-            "J1_Role_Framing.present", "J2_Selective_Imbalance.present"#, "J3_Stereotyping.present"
-        ]
+        self.presence_cols = presence_cols
+
 
     def __len__(self):
         return len(self.df)
@@ -34,7 +32,7 @@ class NewsBiasDataset(Dataset):
 
         # Text
         with open(row["text_path"], "r", encoding="utf-8") as f:
-            text = f.read()
+            text = json.load(f).get("text", "")
         text_inputs = self.text_tokenizer(
             text, padding="max_length", truncation=True,
             max_length=self.max_text_len, return_tensors="pt"

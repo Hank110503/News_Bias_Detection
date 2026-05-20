@@ -7,7 +7,7 @@ import seaborn as sns
 from collections import defaultdict
 
 TARGET_FILE = 'label-gemini-flash-lite-2.5.json'
-OUT_DIR = 'visualization'
+OUT_DIR = os.path.join('outputs', 'analysis', 'data_visualization')
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # -----------------------------

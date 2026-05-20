@@ -1,0 +1,23 @@
+[package]
+name = "war_news_bias_frontend"
+version = "0.1.0"
+description = "Local desktop shell for war news bias analysis"
+authors = ["OpenAI Codex"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "=2.0.0", features = [] }
+
+[dependencies]
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "=2.0.0", features = [] }
+tauri-runtime = { version = "=2.0.0" }
+tauri-runtime-wry = { version = "=2.0.0" }
+
+[features]
+default = []
+
+[patch.crates-io]
+wry = "=0.45.0"

@@ -140,3 +140,28 @@ Miniconda3-latest-Linux-x86_64.sh
 *.pt
 *.pth
 *.tar.gz
+
+# Local tooling and editor state
+.gradio/
+.vscode/
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/src-tauri/target/
+frontend/public/demo/
+
+# Training and analysis outputs
+outputs/
+classified_bias_visualizations/
+codex_cross_cultural_bias/
+merged_analysis/
+test/
+legacy/test/
+
+# Misc generated caches
+__pycache__/
+
+# TensorBoard / experiment event files
+events.out.tfevents.*
